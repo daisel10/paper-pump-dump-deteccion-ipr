@@ -1,0 +1,26 @@
+\begin{abstract}
+Este trabajo propone un método para detectar esquemas de \emph{pump \& dump}
+en mercados de criptoactivos usando teoría espectral de grafos. La idea
+central es modelar el mercado como una red donde los nodos son tokens y las
+aristas representan correlaciones entre sus precios. Primero filtramos el
+ruido de mercado con Teoría de Matrices Aleatorias (RMT), usando dos ventanas
+de tiempo: una larga para calibrar los parámetros del filtro y una corta para
+detectar anomalías. Luego reducimos la red para que no sea demasiado densa,
+usando un árbol de expansión mínima (MST). Sobre la red resultante calculamos
+el \emph{Inverse Participation Ratio} (IPR), que mide qué tan concentrada está
+la energía de cada modo de vibración de la red. La hipótesis es que cuando un
+grupo de tokens es manipulado coordinadamente, forma una comunidad artificial
+que se detecta como un aumento anómalo del IPR. Para evitar falsos positivos,
+comparamos el IPR observado contra el que produciría una red aleatoria con la
+misma estructura de conexiones (\emph{Configuration Model}). La validación se
+realiza sobre ${\approx}351$ eventos confirmados del dataset de La~Morgia
+\textit{et al.}~\cite{lamorgia2020}, usando datos de 1~minuto de la API pública
+de Binance para pares \texttt{SYM/BTC} durante 2021--2022.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Teoría de grafos, análisis espectral, Laplaciana normalizada, Teoría de
+Matrices Aleatorias, distancia de Mantegna, esparsificación MST, \emph{Configuration
+Model}, criptoactivos, detección de manipulación de mercado, \emph{pump and
+dump}, \emph{Inverse Participation Ratio}.
+\end{IEEEkeywords}

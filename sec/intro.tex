@@ -1,0 +1,29 @@
+\section{Introducción}
+
+Los mercados de criptoactivos son poco regulados y tienen baja liquidez, lo
+que los hace vulnerables a manipulación. Uno de los esquemas más comunes es el
+\emph{pump \& dump}: un grupo coordinado compra masivamente un token para
+inflar su precio y luego lo vende, dejando pérdidas a los inversores que
+entraron tarde~\cite{xu2019anatomy}. Se estima que el 24\,\% de los tokens
+lanzados en 2022 tuvo características de este tipo de
+manipulación~\cite{lamorgia2023}.
+
+Los métodos actuales de detección analizan cada token por separado: buscan
+picos anómalos de precio o volumen~\cite{kamps2018}, o usan modelos de
+aprendizaje automático~\cite{hamrick2018}. El problema es que la manipulación
+coordinada deja una huella colectiva que estos enfoques no pueden ver: varios
+tokens que de repente se mueven juntos de forma artificial, formando una
+comunidad densa en la red de correlaciones.
+
+Este trabajo propone detectar esa huella usando análisis espectral de grafos.
+Representamos el mercado como una red donde los nodos son tokens y las aristas
+reflejan qué tan correlacionados están sus precios. Luego analizamos la
+estructura matemática de esa red para encontrar agrupaciones artificiales.
+
+La herramienta central es el \emph{Inverse Participation Ratio} (IPR),
+un concepto originado en física~\cite{anderson1958absence} que mide qué tan
+concentrada está la energía en un modo de vibración de la red. Trabajos
+previos lo usan de forma descriptiva sobre matrices de
+correlación~\cite{plerou1999,nobi2013}; este trabajo propone usarlo por primera
+vez como detector de manipulación, con validación sobre eventos reales
+etiquetados.

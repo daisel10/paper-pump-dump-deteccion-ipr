@@ -1,0 +1,72 @@
+\section{Objetivos}
+
+\subsection{Objetivo General}
+
+Desarrollar y validar un detector de la fase de acumulación en esquemas de
+\emph{pump \& dump} en criptoactivos, usando el perfil del IPR de la
+Laplaciana normalizada de una red de correlaciones filtrada.
+
+\subsection{Objetivos Específicos}
+
+\begin{enumerate}
+
+  \item Recopilar datos de precio de alta frecuencia (velas de 1~minuto)
+        para los tokens involucrados en los ${\approx}351$ eventos del dataset
+        de La~Morgia \textit{et al.}~\cite{lamorgia2020}, usando la API pública
+        de Binance (\texttt{GET /api/v3/klines}), para pares \texttt{SYM/BTC}
+        durante 2021--2022. Binance sigue activa y sus datos históricos de este
+        periodo tienen mucha mejor cobertura que los de datasets anteriores,
+        reduciendo el problema de tokens que ya no existen.
+
+  \item Implementar el pipeline de filtrado: estimar los límites de
+        Marchenko-Pastur $[\lambda_-, \lambda_+]$ sobre ventanas largas de
+        $T_{\text{cal}} = 720~\text{h}$, aplicarlos sobre ventanas cortas de
+        $T_{\text{det}} = 48~\text{h}$, reconstruir $\tilde{C}$ según la
+        ecuación~(\ref{eq:Ctilde}), y reducir la red con el método MST\,$+k$-core
+        calibrado por modularidad.
+
+  \item Calcular la Laplaciana normalizada $\mathcal{L}_t$ de la red
+        reducida y obtener el perfil completo del IPR para todos los modos
+        $k \geq 1$. No restringimos el análisis a ninguna región del espectro:
+        no sabemos de antemano en qué modo aparecerá la anomalía, y asumir
+        que estará en los primeros modos (como en detección de comunidades
+        estáticas) no está justificado para perturbaciones transitorias. Los
+        estadísticos que usamos son:
+        \begin{align*}
+          \mathrm{IPR}_{\text{mean}}(t) &= \frac{1}{N-1}
+            \sum_{k=1}^{N-1} \mathrm{IPR}_k(t), \\[3pt]
+          \mathrm{IPR}_{p90}(t) &= \mathrm{percentil}_{90}
+            \bigl\{\mathrm{IPR}_k(t) : k = 1, \ldots, N-1\bigr\}.
+        \end{align*}
+        Al no depender del orden de los eigenvalores, ambos estadísticos son
+        inmunes al problema del \emph{eigenvalue crossing}.
+
+  \item Definir el umbral de detección usando el \emph{Configuration
+        Model}~\cite{newman2003} como punto de comparación. Usar simplemente
+        un percentil histórico como umbral es problemático: un mercado agitado
+        por una crisis externa (colapso de FTX en 2022, por ejemplo) puede
+        elevar el IPR sin que haya manipulación. En cambio, para cada ventana
+        $t$ generamos $M = 1\,000$ redes aleatorias con la misma estructura de
+        conexiones que $G_t$ (misma secuencia de grados, aristas reasignadas al
+        azar) y estimamos cuánto IPR produce ese ruido de fondo. Declaramos
+        una anomalía cuando:
+        \begin{equation}
+          \mathrm{IPR}_{p90}(t) > \mu_{\text{null}} + 3\,\sigma_{\text{null}},
+          \label{eq:threshold}
+        \end{equation}
+        lo que corresponde a una probabilidad menor al 0.3\% bajo la hipótesis
+        nula. Esto controla por la densidad local de la red: un IPR alto no
+        puede atribuirse simplemente a que la red sea densa, porque eso ya
+        está capturado por el punto de comparación. Reportaremos resultados
+        bajo el modelo estándar y bajo una versión con pesos permutados, para
+        evaluar robustez.
+
+  \item Evaluar el detector sobre los ${\approx}351$ eventos confirmados del
+        dataset~\cite{lamorgia2020} (pares \texttt{SYM/BTC} en Binance,
+        2021--2022), reportando precisión, exhaustividad (\emph{recall}) y
+        área bajo la curva ROC. Además, inspeccionaremos los eigenvectores
+        localizados para verificar que los tokens con mayor peso en
+        $\boldsymbol{\phi}_{k^*}(t)$ corresponden efectivamente a los tokens
+        manipulados, dando interpretabilidad al resultado.
+
+\end{enumerate}

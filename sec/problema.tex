@@ -1,0 +1,170 @@
+\section{Descripción del Problema}
+
+\subsection{Contexto del mercado}
+
+Los mercados de criptoactivos funcionan las 24 horas, tienen miles de tokens
+activos y poca supervisión. La mayoría de estos tokens tienen una capitalización
+muy baja, lo que significa que un grupo con capital moderado puede mover su
+precio fácilmente. Los organizadores de un \emph{pump \& dump} coordinan la
+compra a través de canales de Telegram o Discord, inflan el precio y venden
+antes de que los demás puedan reaccionar~\cite{lamorgia2023}.
+
+Un problema técnico importante es que en condiciones normales, casi todos los
+tokens se mueven juntos siguiendo a Bitcoin ---lo que se llama el \emph{modo de
+mercado global}~\cite{plerou1999}. Si no eliminamos esta correlación de fondo,
+la red de correlaciones queda tan densa que no se puede distinguir ninguna
+estructura: todo parece conectado con todo.
+
+\subsection{Limitaciones de los enfoques actuales}
+
+Los métodos que analizan precio y volumen de cada token por separado tienen dos
+problemas principales. Primero, generan muchas falsas alarmas: cualquier
+movimiento brusco legítimo puede parecerse a un \emph{pump}. Segundo, no ven la
+coordinación entre tokens, que es justo donde está la huella de la
+manipulación.
+
+Los métodos basados en grafos que existen se enfocan en otras cosas: detectar
+ciclos de arbitraje~\cite{wang2022} o analizar flujos entre
+exchanges~\cite{soramaki2007}. Si bien el IPR se ha calculado sobre matrices de
+correlación financiera antes~\cite{plerou1999,nobi2013}, ningún trabajo lo usa
+como detector de manipulación combinando: (i)~filtrado de ruido con RMT antes
+de construir el grafo; (ii)~estadísticos sobre todo el espectro, sin asumir en
+qué región aparece la anomalía; y (iii)~validación sobre eventos confirmados
+con hora exacta. Esa es la contribución de este trabajo.
+
+\subsection{Modelo formal}
+
+Sea $r_i(t) = \ln P_i(t) - \ln P_i(t-1)$ el retorno logarítmico del token $i$
+en el período $[t-1, t]$. Sobre una ventana de tiempo de longitud $T$,
+calculamos la matriz de correlación $C_t \in \mathbb{R}^{N \times N}$ con
+entradas:
+\begin{equation}
+  C_{ij}(t) = \frac{\langle r_i r_j \rangle - \langle r_i \rangle\langle r_j \rangle}
+  {\sigma_i \,\sigma_j},
+  \label{eq:pearson}
+\end{equation}
+donde $\sigma_i$ es la desviación estándar de los retornos del token $i$.
+
+El problema es que esta matriz está llena de ruido: la mayoría de las
+correlaciones no reflejan una relación real entre tokens, sino fluctuaciones
+aleatorias. Para separar la señal del ruido usamos la Teoría de Matrices
+Aleatorias (RMT). Descomponemos la matriz: $C_t = \sum_{k=1}^{N} \lambda_k
+\mathbf{v}_k \mathbf{v}_k^\top$. La RMT predice que el ruido puro produce
+eigenvalores dentro del intervalo de Marchenko-Pastur~\cite{plerou1999}:
+\begin{equation}
+  \lambda_{\pm} = \sigma^2\!\left(1 \pm \sqrt{Q}\,\right)^{\!2},
+  \label{eq:mp}
+\end{equation}
+donde $Q = N/T$ y $\sigma^2$ es la varianza promedio de los retornos.
+Los eigenvalores dentro de $[\lambda_-, \lambda_+]$ son ruido y se descartan.
+El eigenvalor más grande $\lambda_1$ es el modo de mercado global (el
+movimiento conjunto de todos los tokens) y también se elimina.
+
+Hay un problema práctico: la RMT funciona bien cuando $T$ es mucho mayor que
+$N$, pero un \emph{pump \& dump} dura solo horas~\cite{lamorgia2020}, así que
+no podemos usar ventanas de tiempo muy largas. La solución es separar los dos
+pasos: estimamos los límites $[\lambda_-, \lambda_+]$ con una ventana larga de
+$T_{\text{cal}} = 720~\text{h}$ (30 días, donde la RMT es válida), y luego
+los aplicamos sobre ventanas cortas de detección de $T_{\text{det}} = 48~\text{h}$.
+Verificamos que el resultado no cambia mucho si perturbamos $\lambda_+$ en
+${\pm}15\%$; si el cambio en la precisión del detector es menor al $5\%$, la
+aproximación es aceptable.
+
+La matriz filtrada que nos queda es:
+\begin{equation}
+  \tilde{C}_{ij} = \sum_{k \in \mathcal{S}} \lambda_k\, v_{ki}\, v_{kj},
+  \label{eq:Ctilde}
+\end{equation}
+donde $\mathcal{S} = \{k : \lambda_k > \lambda_+,\; k \neq 1\}$ contiene solo
+los eigenvalores informativos, sin el ruido ni el modo de mercado.
+
+Con esta matriz construimos la red. El peso de cada arista $(i,j)$ se obtiene
+de la distancia de Mantegna~\cite{mantegna1999}:
+\begin{equation}
+  d_{ij}(t) = \sqrt{2\left(1 - \tilde{C}_{ij}(t)\right)},
+  \label{eq:mantegna}
+\end{equation}
+con $w_{ij} = 2 - d_{ij}$: tokens más correlacionados tienen aristas más
+pesadas. Esta métrica tiene la ventaja de preservar tanto correlaciones
+positivas como negativas, a diferencia de simplemente truncar los valores
+negativos a cero.
+
+Si usáramos todos los pares de tokens como aristas, la red sería
+demasiado densa: cada nodo conectado con todos los demás hace que los
+eigenvectores de la Laplaciana sean uniformes y el IPR quede cercano a
+$N^{-1}$ para todos los modos, borrando cualquier señal de localización. Para
+evitar esto, reducimos la red en dos pasos: primero construimos el Árbol de
+Expansión Mínima (MST) sobre las distancias $d_{ij}$, que conecta todos los
+nodos con $N-1$ aristas preservando las correlaciones más fuertes; luego
+añadimos las $k$ aristas de mayor peso faltantes en cada nodo, con $k$
+elegido para maximizar la modularidad de la red. Verificamos que la
+estructura espectral se conserva comparando los primeros 20 eigenvalores
+antes y después de la reducción (correlación de Spearman $> 0.9$). Como
+alternativa también evaluaremos el grafo planar maximalmente filtrado
+(PMFG)~\cite{tumminello2005}, que fija exactamente $3(N-2)$ aristas.
+
+Sobre el grafo reducido $G_t = (V, E, w)$ calculamos la Laplaciana
+normalizada:
+\begin{equation}
+  \mathcal{L}_t = D_t^{-1/2}(D_t - A_t)\,D_t^{-1/2},
+  \label{eq:laplacian}
+\end{equation}
+donde $A_t$ es la matriz de adyacencia y $D_t$ la matriz diagonal de grados.
+Los pares propios $\{\lambda_k, \boldsymbol{\phi}_k\}_{k=0}^{N-1}$ satisfacen
+$0 = \lambda_0 \leq \lambda_1 \leq \cdots \leq \lambda_{N-1} \leq 2$.
+Para cada eigenvector calculamos el \emph{Inverse Participation Ratio}:
+\begin{equation}
+  \mathrm{IPR}_k(t) = \sum_{i=1}^{N} \phi_{ki}^4,
+  \label{eq:ipr}
+\end{equation}
+donde $\phi_{ki}$ es la componente $i$ del eigenvector $k$. Cuando el IPR
+es cercano a $N^{-1}$, todos los tokens participan por igual en ese modo
+(eigenvector extendido). Cuando se acerca a 1, el modo está concentrado en
+un nodo. Para un grupo de $m$ tokens fuertemente correlacionados, el IPR
+escala como $\sim m^{-1}$, lo que permite estimar el tamaño del grupo.
+
+El eigenvalor $\lambda_0 = 0$ corresponde al vector constante, que siempre
+está extendido y se excluye. La posición en el espectro donde aparece la
+localización de un grupo manipulado depende de cuántos tokens tiene, qué tan
+correlacionados están entre sí y cómo se conectan al resto de la red. Como no
+tenemos un modelo que nos diga a priori en qué región del espectro buscar,
+no tiene sentido restringir el análisis a los primeros o últimos eigenvalores.
+
+\subsubsection*{El problema del \emph{eigenvalue crossing}}
+
+Una forma ingenua sería seguir el IPR del eigenvector número $k$ a lo largo
+del tiempo. El problema es que en redes dinámicas el orden de los eigenvalores
+cambia entre ventanas consecutivas: el eigenvector número 5 hoy puede
+corresponder a una estructura completamente distinta que el número 5 de mañana.
+Comparar $\mathrm{IPR}_5(t)$ con $\mathrm{IPR}_5(t+1)$ puede ser como comparar
+cosas distintas, produciendo una serie temporal sin sentido.
+
+\subsubsection*{Solución: resumir todo el espectro}
+
+En lugar de seguir modos individuales, en cada ventana calculamos dos
+estadísticos sobre la distribución completa de IPR:
+\begin{align}
+  \mathrm{IPR}_{\text{mean}}(t) &= \frac{1}{N-1}\sum_{k=1}^{N-1}
+    \mathrm{IPR}_k(t), \label{eq:iprmean} \\[4pt]
+  \mathrm{IPR}_{p90}(t) &= \mathrm{percentil}_{90}
+    \bigl\{\mathrm{IPR}_k(t) : k = 1, \ldots, N-1\bigr\}. \label{eq:iprp90}
+\end{align}
+Estos estadísticos no dependen del orden de los eigenvalores, así que son
+inmunes al problema anterior. $\mathrm{IPR}_{\text{mean}}$ mide el nivel
+promedio de concentración en toda la red. $\mathrm{IPR}_{p90}$ se fija en
+la cola superior: detecta si existe algún modo muy localizado, sin importar
+cuál sea.
+
+La hipótesis es la siguiente: cuando un grupo de tokens está siendo acumulado
+coordinadamente antes de un \emph{pump}, forman una comunidad artificial en la
+red que hace que al menos un modo espectral se concentre en ellos. No necesitamos
+saber cuál modo es ese, solo detectar que existe un aumento anómalo en
+$\mathrm{IPR}_{p90}(t)$. Si ese aumento no aparece en los eventos confirmados,
+el resultado negativo también es informativo y publicable.
+
+El problema central es:
+\begin{quote}
+  \emph{¿Puede el percentil~90 de la distribución del IPR de la Laplaciana
+  normalizada de una red de correlaciones filtrada detectar la fase de
+  acumulación previa a esquemas de \emph{pump \& dump} en criptoactivos?}
+\end{quote}
