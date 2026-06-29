@@ -1,0 +1,223 @@
+\section{Solución Propuesta}
+\label{sec:solucion}
+
+La solución que proponemos traduce la pregunta de investigación en un
+\emph{pipeline} de cinco etapas encadenadas. Cada etapa resuelve una
+dificultad concreta identificada en la sección anterior: el ruido
+estadístico que contamina las correlaciones, la densidad excesiva que
+uniformiza el espectro, la inestabilidad del orden de los eigenvalores
+a lo largo del tiempo y el riesgo de confundir volatilidad agregada de
+mercado con manipulación coordinada. El detector no analiza tokens en
+aislamiento sino la huella colectiva que deja la coordinación artificial
+en la topología de la red.
+
+% -------------------------------------------------------
+\subsection{Etapa 1: Recolección y construcción de la matriz de correlación}
+
+Recolectamos velas de 1~minuto para los pares \texttt{SYM/BTC}
+involucrados en los ${\approx}351$ eventos confirmados del dataset de
+La~Morgia \textit{et al.}~\cite{lamorgia2020}, usando la API pública de
+Binance (\texttt{GET /api/v3/klines}) para el período 2021--2022.
+Elegimos Binance porque sus datos históricos de este período tienen
+cobertura sustancialmente mayor que la de datasets anteriores, lo que
+reduce el número de tokens que ya no existen o tienen series
+incompletas.
+
+A partir de los precios de cierre calculamos los retornos logarítmicos
+$r_i(t) = \ln P_i(t) - \ln P_i(t-1)$ y sobre cada ventana deslizante
+de longitud $T$ construimos la matriz de correlación de Pearson
+$C_t \in \mathbb{R}^{N \times N}$ según la ecuación~(\ref{eq:pearson}).
+Esta es la representación de partida: cada entrada $C_{ij}(t)$ mide
+cuánto se mueven juntos los tokens $i$ y $j$ en esa ventana, sin
+discriminar todavía qué parte de esa covariación es información real y
+qué parte es ruido.
+
+% -------------------------------------------------------
+\subsection{Etapa 2: Filtrado espectral con ventana dual}
+
+El problema de usar $C_t$ directamente es que la mayoría de sus entradas
+no reflejan relaciones genuinas entre tokens sino fluctuaciones
+estadísticas~\cite{plerou1999}. Además, el eigenvalor dominante
+concentra la variación conjunta de todos los tokens siguiendo a
+Bitcoin ---el modo de mercado global--- y enmascaría cualquier
+estructura de comunidad más fina.
+
+Para separar señal de ruido aplicamos la Teoría de Matrices Aleatorias
+(RMT). La distribución de Marchenko-Pastur predice que, bajo la hipótesis
+de correlaciones puramente aleatorias, todos los eigenvalores caen en el
+intervalo $[\lambda_-, \lambda_+]$ definido en la ecuación~\eqref{eq:mp},
+con $Q = N/T$ y $\sigma^2$ la varianza promedio de los
+retornos~\cite{plerou1999}. Los eigenvalores dentro de ese intervalo son
+ruido y se descartan; el eigenvalor más grande $\lambda_1$ (modo de
+mercado global) también se elimina.
+
+Aquí surge un problema práctico: la RMT requiere $T \gg N$ para ser
+válida, pero un \emph{pump \& dump} dura solo horas~\cite{lamorgia2020},
+lo que obliga a usar ventanas de detección cortas donde esa condición
+no se cumple. La solución es separar los dos pasos: estimamos los
+límites $[\lambda_-, \lambda_+]$ con una ventana larga de calibración
+$T_{\text{cal}} = 720~\text{h}$ (30 días, donde la RMT es
+estadísticamente válida) y los aplicamos directamente sobre ventanas
+cortas de detección de $T_{\text{det}} = 48~\text{h}$. Para verificar
+que la aproximación es aceptable, comprobamos que perturbar $\lambda_+$
+en ${\pm}15\%$ produce cambios en la precisión del detector menores
+al $5\%$.
+
+La matriz filtrada resultante $\tilde{C}$ se obtiene mediante la
+ecuación~\eqref{eq:Ctilde}, donde $\mathcal{S} = \{k : \lambda_k >
+\lambda_+,\; k \neq 1\}$ retiene únicamente los eigenvalores
+informativos, eliminando tanto el ruido aleatorio como el modo de
+mercado global.
+
+% -------------------------------------------------------
+\subsection{Etapa 3: Construcción del grafo esparsificado}
+
+Con $\tilde{C}$ construimos el grafo de correlaciones usando la distancia
+de Mantegna~\cite{mantegna1999} (ecuación~\eqref{eq:mantegna}), con peso
+de arista $w_{ij} = 2 - d_{ij}$: tokens más correlacionados reciben
+aristas más pesadas. Esta métrica preserva tanto correlaciones positivas
+como negativas, a diferencia de truncar los valores negativos a cero.
+
+Usar el grafo completo sobre todos los pares destruye la señal que
+queremos detectar: cuando cada nodo está conectado con todos los demás,
+los eigenvectores de la Laplaciana tienden a ser uniformes y el IPR
+queda cercano a $N^{-1}$ para todos los modos, borrando cualquier
+indicio de localización. Para evitarlo reducimos la red en dos pasos.
+Primero construimos el Árbol de Expansión Mínima (MST) sobre las
+distancias $d_{ij}$, que conecta los $N$ nodos con solo $N-1$ aristas
+preservando las correlaciones más fuertes. Luego añadimos las $k$
+aristas de mayor peso faltantes en cada nodo, con $k$ elegido para
+maximizar la modularidad de la red usando el algoritmo de
+Leiden~\cite{traag2019}, que garantiza comunidades bien conectadas y
+evita los problemas de comunidades desconectadas del algoritmo de
+Louvain. La elección de Leiden es importante porque la optimización de
+modularidad es NP-duro en general: Leiden obtiene soluciones de alta
+calidad en tiempo polinomial con resultados reproducibles dada una
+semilla fija. Verificamos que la estructura espectral se conserva
+comparando los primeros 20 eigenvalores antes y después de la reducción
+mediante correlación de Spearman ($\rho > 0.9$).
+
+% -------------------------------------------------------
+\subsection{Etapa 4: Perfil espectral del IPR robusto al \emph{eigenvalue crossing}}
+
+Sobre el grafo reducido $G_t = (V, E, w)$ calculamos la Laplaciana
+normalizada $\mathcal{L}_t$ (ecuación~\eqref{eq:laplacian}). Sus pares
+propios $\{\lambda_k, \boldsymbol{\phi}_k\}_{k=0}^{N-1}$ satisfacen
+$0 = \lambda_0 \leq \lambda_1 \leq \cdots \leq \lambda_{N-1} \leq 2$.
+Para cada eigenvector $k \geq 1$ calculamos el \emph{Inverse Participation
+Ratio} (ecuación~\eqref{eq:ipr})~\cite{anderson1958absence}. Un valor
+$\mathrm{IPR}_k \approx N^{-1}$ indica participación uniforme de todos
+los tokens; un valor cercano a $1$ indica concentración en un solo nodo.
+Para un grupo artificial de $m$ tokens el IPR escala como
+${\sim}\,m^{-1}$, lo que permite estimar el tamaño del grupo manipulado.
+
+Una forma ingenua de monitorear el IPR sería seguir el eigenvector
+número $k$ a lo largo del tiempo. Sin embargo, en redes dinámicas el
+orden de los eigenvalores cambia entre ventanas consecutivas: el
+eigenvector número~5 en $t$ puede corresponder a una estructura
+completamente distinta del número~5 en $t+1$. Comparar
+$\mathrm{IPR}_5(t)$ con $\mathrm{IPR}_5(t+1)$ produciría una serie
+temporal sin sentido. Este \emph{eigenvalue crossing} es inherente a
+perturbaciones transitorias como las que genera un \emph{pump \& dump},
+donde la comunidad artificial aparece y desaparece en horas, y no puede
+resolverse simplemente restringiendo el análisis a los primeros modos
+como se hace en detección de comunidades estáticas.
+
+La solución es no seguir modos individuales. En cada ventana resumimos
+la distribución completa del IPR con los estadísticos
+$\mathrm{IPR}_{\text{mean}}$ e $\mathrm{IPR}_{p90}$ definidos en las
+ecuaciones~\eqref{eq:iprmean}--\eqref{eq:iprp90}. Al no depender del orden de los eigenvalores, ambos son inmunes al
+\emph{eigenvalue crossing}. $\mathrm{IPR}_{\text{mean}}$ captura el
+nivel promedio de concentración en toda la red; $\mathrm{IPR}_{p90}$
+se fija en la cola superior y detecta si existe algún modo muy
+localizado sin importar cuál sea. La hipótesis operativa
+es que cuando un grupo de tokens está siendo acumulado coordinadamente
+antes del \emph{pump}, la comunidad artificial que forman hace que al
+menos un modo espectral se concentre sobre ellos, elevando
+$\mathrm{IPR}_{p90}(t)$ por encima de lo que cabría esperar de una red
+sin manipulación.
+
+% -------------------------------------------------------
+\subsection{Etapa 5: Umbral dinámico mediante el \emph{Configuration Model}}
+
+El último problema es definir cuándo un valor de $\mathrm{IPR}_{p90}(t)$
+es realmente anómalo. Usar un percentil histórico como umbral es
+insuficiente: un evento externo que agite todo el mercado ---como el
+colapso de FTX en noviembre de 2022--- puede elevar el IPR en toda la
+red sin que haya manipulación coordinada. Un umbral fijo capturaría ese
+episodio como una detección, generando exactamente el tipo de falso
+positivo que queremos evitar.
+
+Para controlar este efecto usamos el \emph{Configuration
+Model}~\cite{newman2003} como punto de comparación ventana a ventana.
+Para cada $G_t$ generamos $M = 10\,000$ redes aleatorias con la misma
+secuencia de grados pero con las aristas reasignadas uniformemente al
+azar, preservando la densidad local de la red pero destruyendo cualquier
+estructura de comunidad. Sobre cada red aleatoria calculamos $\mathrm{IPR}_{p90}$ y construimos
+la distribución nula empírica. Declaramos una anomalía cuando
+$\mathrm{IPR}_{p90}(t)$ supera el umbral definido en la
+ecuación~\eqref{eq:threshold}: el percentil~99.7 empírico de esa
+distribución. Este criterio no paramétrico evita asumir normalidad, ya
+que $\mathrm{IPR}_{p90}$ como estadístico de orden puede seguir una
+distribución asimétrica. El umbral es \emph{local}: se recalibra en cada
+ventana, de modo que un mercado globalmente más correlacionado produce
+automáticamente una línea base más alta. Para evaluar robustez
+reportaremos resultados bajo el modelo estándar y bajo una variante con
+pesos de arista permutados aleatoriamente.
+
+% -------------------------------------------------------
+\subsection{Evaluación e interpretabilidad}
+
+El detector se evalúa sobre los ${\approx}351$ eventos confirmados del
+dataset~\cite{lamorgia2020} (pares \texttt{SYM/BTC} en Binance,
+2021--2022). La ventana de detección se centra en las 48~h previas a la
+hora exacta de inicio de cada evento etiquetado.
+
+Dado el severo desbalance de clases inherente a la detección de anomalías
+---los eventos de \emph{pump \& dump} representan una fracción pequeña de
+las ventanas temporales totales en dos años de datos---, la métrica
+principal es el \textbf{área bajo la curva Precisión-Recall (PR-AUC)},
+complementada con el \textbf{F1-Score}. Estas métricas son las estándar
+para problemas de detección de fraude con clases desbalanceadas porque no
+inflan el resultado con los Verdaderos Negativos, a diferencia del
+ROC-AUC. Adicionalmente se reporta ROC-AUC para comparabilidad con la
+literatura existente.
+
+Como línea base para comparación usamos un detector de umbral sobre
+retornos: se declara anomalía si el retorno promedio de los tokens en la
+ventana supera $\mu_{\text{hist}} + 3\,\sigma_{\text{hist}}$, donde
+$\mu_{\text{hist}}$ y $\sigma_{\text{hist}}$ se estiman sobre los 30
+días previos. Este detector es representativo de los enfoques
+univariados actuales~\cite{kamps2018} y permite cuantificar el
+beneficio de incorporar estructura de red al análisis.
+
+Más allá de las métricas agregadas, inspeccionaremos los eigenvectores
+localizados para verificar que los tokens con mayor peso en
+$\boldsymbol{\phi}_{k^*}(t)$ ---donde $k^*$ es el modo que maximiza el
+IPR en la ventana de alerta--- corresponden efectivamente a los tokens
+manipulados según el dataset. Esta verificación es importante por dos
+razones. Primero, da interpretabilidad al resultado: el detector no es
+una caja negra sino que señala los nodos específicos que generan la
+anomalía. Segundo, si el resultado agregado es negativo ---es decir,
+si el IPR no logra separar eventos manipulados de períodos normales---,
+este análisis permite determinar si la señal existe pero el umbral no
+es suficientemente sensible, o si la manipulación en este conjunto de
+datos no produce la estructura espectral que la hipótesis predice. En
+ambos casos el resultado es informativo y publicable.
+
+\begin{table}[htbp]
+  \caption{Hiperparámetros del pipeline}
+  \label{tab:hyperparams}
+  \centering
+  \begin{tabular}{lll}
+    \hline
+    \textbf{Parámetro} & \textbf{Valor} & \textbf{Justificación} \\
+    \hline
+    $T_{\text{cal}}$ & 720~h (30 días) & RMT válida con $T \gg N$ \\
+    $T_{\text{det}}$ & 48~h & Duración típica de acumulación~\cite{lamorgia2020} \\
+    $M$ & 10\,000 redes & Estima el percentil~99.7 con ${\approx}30$ valores en la cola \\
+    Umbral & $\hat{F}_{\text{null}}^{-1}(0.997)$ & Percentil~99.7 empírico (no paramétrico) \\
+    Sensibilidad RMT & ${\pm}15\%$ en $\lambda_+$ & Cambio en precisión $< 5\%$ \\
+    \hline
+  \end{tabular}
+\end{table}

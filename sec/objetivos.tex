@@ -1,37 +1,46 @@
-\section{Objetivos}
+\section{Objetivo General y Objetivos Específicos}
 
 \subsection{Objetivo General}
 
 Desarrollar y validar un detector de la fase de acumulación en esquemas de
-\emph{pump \& dump} en criptoactivos, usando el perfil del IPR de la
-Laplaciana normalizada de una red de correlaciones filtrada.
+\emph{pump \& dump} en criptoactivos, modelando el mercado como una red de
+correlaciones filtrada y aplicando teoría espectral de grafos ---mediante la
+Laplaciana normalizada y el \emph{Inverse Participation Ratio} (IPR)--- para
+identificar patrones de coordinación artificial sobre eventos reales etiquetados.
 
 \subsection{Objetivos Específicos}
 
 \begin{enumerate}
 
-  \item Recopilar datos de precio de alta frecuencia (velas de 1~minuto)
-        para los tokens involucrados en los ${\approx}351$ eventos del dataset
-        de La~Morgia \textit{et al.}~\cite{lamorgia2020}, usando la API pública
-        de Binance (\texttt{GET /api/v3/klines}), para pares \texttt{SYM/BTC}
-        durante 2021--2022. Binance sigue activa y sus datos históricos de este
-        periodo tienen mucha mejor cobertura que los de datasets anteriores,
-        reduciendo el problema de tokens que ya no existen.
+  \item Construir la red de correlaciones dinámica $G_t = (V, E, w)$,
+        donde cada nodo es un token, cada arista tiene peso derivado de
+        la distancia de Mantegna~\cite{mantegna1999} sobre retornos
+        logarítmicos, y la red evoluciona sobre ventanas deslizantes.
+        Los datos de entrada son velas de 1~minuto recopiladas mediante
+        la API pública de Binance (\texttt{GET /api/v3/klines}) para los
+        ${\approx}351$ eventos del dataset de La~Morgia
+        \textit{et al.}~\cite{lamorgia2020}, pares \texttt{SYM/BTC},
+        período 2021--2022. Binance ofrece mayor cobertura histórica que
+        datasets anteriores, reduciendo el problema de tokens que ya no
+        existen.
 
-  \item Implementar el pipeline de filtrado: estimar los límites de
-        Marchenko-Pastur $[\lambda_-, \lambda_+]$ sobre ventanas largas de
-        $T_{\text{cal}} = 720~\text{h}$, aplicarlos sobre ventanas cortas de
-        $T_{\text{det}} = 48~\text{h}$, reconstruir $\tilde{C}$ según la
-        ecuación~(\ref{eq:Ctilde}), y reducir la red con el método MST\,$+k$-core
-        calibrado por modularidad.
+  \item Filtrar el ruido estadístico de $C_t$ mediante RMT (límites de
+        Marchenko-Pastur, ventana dual $T_{\text{cal}} = 720~\text{h}$ /
+        $T_{\text{det}} = 48~\text{h}$, reconstrucción $\tilde{C}$ según
+        la ecuación~(\ref{eq:Ctilde})) y esparsificar la red resultante
+        usando el \emph{Árbol de Expansión Mínima} (MST) como esqueleto
+        topológico, al que se añaden $k$ aristas adicionales calibradas
+        por modularidad para preservar la estructura de comunidades del
+        grafo completo.
 
-  \item Calcular la Laplaciana normalizada $\mathcal{L}_t$ de la red
-        reducida y obtener el perfil completo del IPR para todos los modos
-        $k \geq 1$. No restringimos el análisis a ninguna región del espectro:
-        no sabemos de antemano en qué modo aparecerá la anomalía, y asumir
-        que estará en los primeros modos (como en detección de comunidades
-        estáticas) no está justificado para perturbaciones transitorias. Los
-        estadísticos que usamos son:
+  \item Aplicar teoría espectral de grafos sobre $G_t$: calcular la
+        Laplaciana normalizada $\mathcal{L}_t$ del grafo esparsificado y
+        obtener el perfil completo del \emph{Inverse Participation Ratio}
+        para todos los modos $k \geq 1$. No restringimos el análisis a
+        ninguna región del espectro: la posición espectral de una anomalía
+        transitoria no es predecible de antemano, a diferencia de los
+        enfoques estáticos de detección de comunidades. Los estadísticos
+        distribucionales que usamos son:
         \begin{align*}
           \mathrm{IPR}_{\text{mean}}(t) &= \frac{1}{N-1}
             \sum_{k=1}^{N-1} \mathrm{IPR}_k(t), \\[3pt]
@@ -46,27 +55,39 @@ Laplaciana normalizada de una red de correlaciones filtrada.
         un percentil histórico como umbral es problemático: un mercado agitado
         por una crisis externa (colapso de FTX en 2022, por ejemplo) puede
         elevar el IPR sin que haya manipulación. En cambio, para cada ventana
-        $t$ generamos $M = 1\,000$ redes aleatorias con la misma estructura de
+        $t$ generamos $M = 10\,000$ redes aleatorias con la misma estructura de
         conexiones que $G_t$ (misma secuencia de grados, aristas reasignadas al
         azar) y estimamos cuánto IPR produce ese ruido de fondo. Declaramos
-        una anomalía cuando:
+        una anomalía cuando $\mathrm{IPR}_{p90}(t)$ supera el percentil~99.7
+        empírico de la distribución nula:
         \begin{equation}
-          \mathrm{IPR}_{p90}(t) > \mu_{\text{null}} + 3\,\sigma_{\text{null}},
+          \mathrm{IPR}_{p90}(t) > \hat{F}_{\text{null}}^{-1}(0.997),
           \label{eq:threshold}
         \end{equation}
-        lo que corresponde a una probabilidad menor al 0.3\% bajo la hipótesis
-        nula. Esto controla por la densidad local de la red: un IPR alto no
-        puede atribuirse simplemente a que la red sea densa, porque eso ya
-        está capturado por el punto de comparación. Reportaremos resultados
-        bajo el modelo estándar y bajo una versión con pesos permutados, para
-        evaluar robustez.
+        donde $\hat{F}_{\text{null}}^{-1}$ es la función de cuantiles empírica
+        de los $M = 10\,000$ valores simulados. Este umbral no paramétrico evita
+        asumir normalidad en la distribución nula: el estadístico
+        $\mathrm{IPR}_{p90}$ es un estadístico de orden sobre una métrica de
+        red y su distribución bajo el Configuration Model puede ser asimétrica.
+        La equivalencia con $\mu_{\text{null}} + 3\,\sigma_{\text{null}}$
+        se cumple solo bajo normalidad y se reportará como referencia, pero
+        el criterio operativo es el percentil empírico. Esto controla por la
+        densidad local de la red: un IPR alto no puede atribuirse simplemente
+        a que la red sea densa, porque eso ya está capturado por el modelo
+        nulo. Reportaremos resultados bajo el modelo estándar y bajo una
+        versión con pesos permutados, para evaluar robustez.
 
   \item Evaluar el detector sobre los ${\approx}351$ eventos confirmados del
         dataset~\cite{lamorgia2020} (pares \texttt{SYM/BTC} en Binance,
-        2021--2022), reportando precisión, exhaustividad (\emph{recall}) y
-        área bajo la curva ROC. Además, inspeccionaremos los eigenvectores
-        localizados para verificar que los tokens con mayor peso en
-        $\boldsymbol{\phi}_{k^*}(t)$ corresponden efectivamente a los tokens
-        manipulados, dando interpretabilidad al resultado.
+        2021--2022). Por el severo desbalance de clases propio de la detección
+        de anomalías, la métrica principal es el \textbf{PR-AUC} (área bajo la
+        curva Precisión-Recall), complementada con el \textbf{F1-Score}. El
+        ROC-AUC se reporta para comparabilidad con la literatura, pero no es la
+        métrica de decisión porque los Verdaderos Negativos inflan su
+        denominador de forma engañosa en datasets desbalanceados. Además,
+        inspeccionaremos los eigenvectores localizados para verificar que los
+        tokens con mayor peso en $\boldsymbol{\phi}_{k^*}(t)$ corresponden
+        efectivamente a los tokens manipulados, dando interpretabilidad al
+        resultado.
 
 \end{enumerate}

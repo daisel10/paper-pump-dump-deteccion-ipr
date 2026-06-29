@@ -6,7 +6,7 @@ aristas representan correlaciones entre sus precios. Primero filtramos el
 ruido de mercado con Teoría de Matrices Aleatorias (RMT), usando dos ventanas
 de tiempo: una larga para calibrar los parámetros del filtro y una corta para
 detectar anomalías. Luego reducimos la red para que no sea demasiado densa,
-usando un árbol de expansión mínima (MST). Sobre la red resultante calculamos
+usando un MST al que se añaden aristas calibradas por modularidad. Sobre la red resultante calculamos
 el \emph{Inverse Participation Ratio} (IPR), que mide qué tan concentrada está
 la energía de cada modo de vibración de la red. La hipótesis es que cuando un
 grupo de tokens es manipulado coordinadamente, forma una comunidad artificial

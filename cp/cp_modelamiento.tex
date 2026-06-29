@@ -1,0 +1,13 @@
+\section{Modelamiento del problema}
+
+Sea $r_i(t) = \ln P_i(t) - \ln P_i(t-1)$ el retorno logarítmico del token $i$ en el período $[t-1, t]$. Sobre una ventana de tiempo de longitud $T$, representamos la dinámica conjunta del mercado mediante la matriz de correlación $C_t \in \mathbb{R}^{N \times N}$ con entradas:
+\begin{equation}
+  C_{ij}(t) = \frac{\langle r_i r_j \rangle - \langle r_i \rangle\langle r_j \rangle}
+  {\sigma_i \,\sigma_j},
+  \label{eq:pearson}
+\end{equation}
+donde $\sigma_i$ es la desviación estándar de los retornos del token $i$. Esta matriz captura el grado de dependencia estadística entre pares de tokens en cada ventana temporal.
+
+Modelamos un evento de \emph{pump \& dump} como la aparición transitoria de un subconjunto de tokens $S \subset V$, con $|S| \ll N$, cuyos retornos presentan dependencia estadística anómala respecto al resto del mercado. Intuitivamente, la acumulación coordinada previa a un \emph{pump} induce correlaciones elevadas dentro de $S$, generando una estructura colectiva que no está presente en condiciones normales de mercado.
+
+Bajo esta perspectiva, el problema se formula como una tarea de detección: identificar ventanas temporales $t$ en las que existe un subconjunto $S$ tal que las correlaciones entre sus elementos son sistemáticamente mayores (o estructuralmente distintas) que las esperadas bajo un comportamiento no manipulado. Este enfoque no requiere conocer a priori qué tokens pertenecen a $S$, sino inferir su existencia a partir de patrones agregados en la matriz de correlación.

@@ -1,0 +1,187 @@
+\section{Marco Teórico}
+\label{sec:marco}
+
+\subsection{Grafos y análisis espectral}
+
+Un grafo $G = (V, E, w)$ es una estructura matemática compuesta por un
+conjunto de nodos $V$, un conjunto de aristas $E$ y una función de peso
+$w : E \to \mathbb{R}$. En este trabajo los nodos representan tokens de
+criptoactivos y los pesos reflejan el grado de correlación entre sus precios.
+
+La \emph{Laplaciana normalizada} $\mathcal{L} = D^{-1/2}(D-A)D^{-1/2}$
+tiene eigenvalores acotados en $[0,2]$ independientemente de la
+distribución de pesos, lo que hace que los valores del IPR sean
+comparables entre ventanas de tiempo distintas --- propiedad esencial
+para construir una serie temporal coherente del detector. La Laplaciana
+estándar $D - A$ no tiene esta propiedad: su espectro escala con el
+grado medio de la red, de modo que ventanas con distinta densidad de
+correlaciones producen rangos de eigenvalores incomparables. La
+matriz de transición de caminata aleatoria $D^{-1}A$ tampoco es simétrica,
+lo que impide garantizar que sus eigenvectores formen una base ortonormal y
+complica el cálculo del IPR~\cite{newman2003}.
+
+La normalización por $D^{-1/2}$ sí amplifica la contribución de nodos
+periféricos (tokens con pocas aristas fuertes), pero este efecto es
+deseable en nuestro contexto: un token aislado que de repente forma
+correlaciones fuertes con un grupo es precisamente la señal que queremos
+detectar. El ruido que puede introducirse en nodos muy aislados queda
+controlado por el filtrado espectral previo con RMT, que elimina
+correlaciones espurias antes de construir el grafo.
+
+El \emph{Inverse Participation Ratio} (IPR) de un eigenvector mide qué
+tan concentrada está su energía sobre los nodos. Un eigenvector
+\emph{extendido} produce $\mathrm{IPR} \approx N^{-1}$; uno
+\emph{localizado} produce $\mathrm{IPR} \gg N^{-1}$. Este concepto
+proviene de la física del estado sólido~\cite{anderson1958absence}, donde
+se usa para estudiar la transición entre estados conductores (extendidos)
+y aislantes (localizados) en materiales desordenados.
+
+\subsection{Esparsificación de grafos}
+
+Un grafo completo sobre $N$ activos tiene $N(N-1)/2$ aristas. Una red tan
+densa uniformiza los eigenvectores de la Laplaciana, llevando el IPR de
+todos los modos cerca de $N^{-1}$ y borrando cualquier señal de
+localización.
+
+El \emph{Árbol de Expansión Mínima} (MST) conecta todos los nodos con
+exactamente $N-1$ aristas de mínimo costo total, preservando las
+correlaciones más fuertes~\cite{mantegna1999}. Tumminello \textit{et
+al.}~\cite{tumminello2005} demostraron que estructuras de filtrado
+similares retienen información estadísticamente significativa en mercados
+financieros. El MST se usa como esqueleto base al que se añaden aristas
+adicionales calibradas por modularidad, equilibrando parsimonia
+estructural con riqueza topológica.
+
+\subsection{Mercados financieros como redes de correlación}
+
+Los retornos logarítmicos son la representación estándar del cambio de
+precio de un activo porque estabilizan la varianza y hacen comparables
+activos de distinto precio. La correlación de Pearson mide dependencia
+lineal y es el punto de partida estándar en la literatura de redes
+financieras~\cite{mantegna1999,plerou1999}.
+
+Sin embargo, los retornos de criptoactivos exhiben colas pesadas extremas
+y agrupamiento de volatilidad (\emph{volatility clustering}), fenómenos
+que pueden inflar artificialmente la correlación de Pearson durante
+choques exógenos~\cite{xu2019anatomy}. Medidas de dependencia basadas en
+rangos, como Spearman o Kendall, son más robustas a valores atípicos
+porque solo dependen del orden relativo de los retornos y no de su
+magnitud. No las adoptamos como métrica principal porque la RMT
+---que es el mecanismo de filtrado central del pipeline--- está
+desarrollada teóricamente para matrices de correlación de Pearson; no
+existe un equivalente de Marchenko-Pastur para matrices de correlación
+de Spearman con las mismas propiedades analíticas. No obstante, la
+sensibilidad a este supuesto se evaluará empíricamente comparando los
+resultados del detector bajo Pearson y bajo Spearman como análisis de
+robustez.
+
+Mantegna~\cite{mantegna1999} propuso transformar las correlaciones en
+distancias mediante $d_{ij} = \sqrt{2(1 - C_{ij})}$, lo que define una
+métrica euclidiana sobre el espacio de activos y permite construir el
+MST con semántica geométrica clara.
+
+En mercados de criptoactivos existe un fenómeno dominante: casi todos los
+tokens se mueven junto con Bitcoin. Esta covariación se manifiesta como
+un eigenvalor dominante de la matriz de correlación que corresponde al
+\emph{modo de mercado global}~\cite{plerou1999}. Si no se elimina,
+enmascara cualquier estructura de comunidad más fina.
+
+\subsection{Teoría de Matrices Aleatorias y estacionariedad}
+
+La RMT predice que, bajo correlaciones puramente aleatorias, los
+eigenvalores de una matriz de correlación $N \times N$ construida sobre
+series de longitud $T$ caen dentro del intervalo de Marchenko-Pastur
+$[\lambda_-, \lambda_+]$, que depende únicamente del cociente $Q =
+N/T$~\cite{plerou1999}. Los eigenvalores fuera de este intervalo
+contienen información genuina sobre la estructura del sistema.
+
+La condición $T \gg N$ (equivalentemente, $Q \ll 1$) es necesaria para
+que la predicción teórica sea precisa. Con velas de 1~minuto, la ventana
+de calibración de $T_{\text{cal}} = 720~\text{h}$ corresponde a
+$720 \times 60 = 43\,200$ observaciones. Para $N = 50$ tokens activos,
+el cociente es $Q = 50/43\,200 \approx 0.0012$, valor que satisface
+ampliamente la condición $Q \ll 1$ y justifica la aplicación de la
+distribución de Marchenko-Pastur. En cambio, la ventana de detección de
+$T_{\text{det}} = 48~\text{h}$ produce solo $2\,880$ observaciones,
+con $Q \approx 0.017$, donde el estimador de Pearson tiene sesgo
+significativo. La solución adoptada separa la estimación de los límites
+(ventana larga, RMT válida) de su aplicación sobre ventanas cortas.
+
+Esta transferencia introduce un supuesto de \emph{estacionariedad local}:
+que la estructura de ruido estimada en los 30 días previos es
+representativa de las siguientes 48~h. El mercado de criptoactivos sufre
+cambios de régimen bruscos que pueden violar este supuesto. Sin embargo,
+el umbral dinámico basado en el Configuration Model (véase
+Sección~\ref{sec:solucion}) mitiga parcialmente este problema: al
+recalibrarse en cada ventana de detección usando la topología local de
+$G_t$, el umbral absorbe cambios en el nivel de correlación agregado sin
+requerir estacionariedad global. La validez de la transferencia se
+verifica empíricamente mediante un análisis de sensibilidad descrito en
+la sección de solución propuesta.
+
+\subsection{Modelos nulos en redes complejas}
+
+Detectar una anomalía requiere definir primero qué constituye el
+comportamiento normal. En redes complejas el \emph{modelo nulo} estándar
+es el \emph{Configuration Model}~\cite{newman2003}: dado un grafo
+observado $G$ con secuencia de grados $\{d_i\}_{i=1}^N$, el
+Configuration Model genera una familia de grafos aleatorios que preservan
+exactamente esa secuencia de grados pero con las aristas reasignadas
+uniformemente al azar.
+
+Esta construcción tiene una propiedad crucial: al preservar la secuencia
+de grados, controla por la densidad local de la red. Un IPR alto no
+puede atribuirse simplemente a que la red sea densa o esté concentrada
+en pocos hubs --- esas características ya están capturadas por el modelo
+nulo. Lo que el umbral detecta es un exceso de localización que no puede
+explicarse por la topología de grado sola.
+
+El umbral de detección se define como el percentil~99.7 empírico de la
+distribución de $\mathrm{IPR}_{p90}$ sobre las $M$ redes nulas
+generadas. Este criterio no paramétrico es preferible a $\mu_{\text{null}}
++ 3\,\sigma_{\text{null}}$ porque el estadístico $\mathrm{IPR}_{p90}$
+---siendo un estadístico de orden sobre una métrica de red--- puede
+seguir una distribución asimétrica bajo el Configuration Model. Asumir
+normalidad subestimaría el umbral cuando la distribución nula tiene cola
+derecha pesada, incrementando los falsos positivos.
+
+Una limitación del Configuration Model puro es que destruye el
+coeficiente de clustering local al reasignar aristas al azar. Las redes
+financieras tienen alta transitividad natural: si el token $A$ correlaciona
+fuertemente con $B$ y $B$ con $C$, es probable que $A$ correlacione con
+$C$, formando triángulos. Un modelo nulo que no captura esta propiedad
+tiene un $\mathrm{IPR}_{p90}$ nulo sistemáticamente menor que el de la
+red real en condiciones no manipuladas, haciendo que el umbral del
+99.7\% sea demasiado permisivo e incrementando los falsos positivos.
+
+Para cuantificar este efecto se comparará el Configuration Model puro
+con un modelo nulo de \emph{rewiring local}: dado el grafo observado
+$G_t$, se intercambian repetidamente los extremos de pares de aristas
+elegidos al azar preservando la secuencia de grados y el coeficiente de
+clustering local dentro de una tolerancia del $5\%$~\cite{maslov2002}.
+Al preservar la transitividad de la red, este modelo nulo produce un
+umbral más conservador y reduce los falsos positivos atribuibles a la
+estructura natural de triángulos del mercado. Los resultados se reportan
+bajo ambos modelos nulos.
+
+\subsection{Limitaciones del marco: coordinación artificial frente a
+choques legítimos}
+
+La hipótesis central de este trabajo es que la fase de acumulación de un
+\emph{pump \& dump} produce localización espectral anómala en la red de
+correlaciones. Sin embargo, no toda localización espectral implica
+manipulación. Un choque fundamental legítimo y localizado ---como una
+noticia regulatoria favorable exclusivamente para el sector DeFi--- haría
+que ese grupo de tokens formara una comunidad densa y transitoria, elevando
+$\mathrm{IPR}_{p90}$ de la misma forma que la manipulación.
+
+El marco teórico no puede distinguir ambos casos usando solo información
+espectral. La diferenciación depende de dos elementos que están fuera del
+alcance de este trabajo: (i)~información externa sobre eventos de mercado
+que permita etiquetar períodos de choque legítimo, y (ii)~patrones
+temporales (duración, reversión brusca) que son distintos entre un
+\emph{pump \& dump} y un choque fundamental. Esta es una limitación
+conocida del enfoque y no invalida el detector; implica que en la
+evaluación empírica se reportarán los falsos positivos coincidentes con
+eventos externos identificables, separándolos de los errores atribuibles
+al modelo.

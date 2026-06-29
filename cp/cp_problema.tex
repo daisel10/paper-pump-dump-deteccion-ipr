@@ -1,0 +1,22 @@
+\section{Descripción del Problema}
+
+En mercados de criptoactivos, la manipulación coordinada mediante esquemas de \emph{pump \& dump} representa un desafío significativo para la detección temprana de anomalías. En estos eventos, un grupo de actores acumula un activo de baja liquidez y luego inducen de forma coordinada un aumento artificial de su precio, para finalmente vender en el pico. Este proceso ocurre en escalas de tiempo cortas y suele dejar señales débiles antes de la fase de \emph{pump}, lo que dificulta su identificación anticipada.
+
+A diferencia de otros fenómenos financieros, estos eventos no se manifiestan únicamente en el comportamiento individual de un activo, sino en patrones colectivos. Múltiples tokens pueden exhibir movimientos sincronizados como resultado de estrategias coordinadas de acumulación, rotación de capital o manipulación cruzada. 
+
+El problema consiste en detectar, a partir de series temporales de precios, la existencia de un subconjunto desconocido de tokens, cuyos retornos presentan correlación estadística atípica en una ventana temporal previa a un evento de \emph{pump}. El desafío radica en que este subconjunto no está etiquetado a priori, su tamaño es variable y su impacto puede quedar oculto dentro del comportamiento agregado del mercado.
+
+Lamentablemente, este problema presenta varias dificultades fundamentales. Primero, las correlaciones estimadas en ventanas finitas están fuertemente contaminadas por ruido estadístico, lo que dificulta distinguir entre correlación genuina y fluctuaciones aleatorias. Segundo, el mercado de criptomonedas es altamente dinámico: las relaciones entre activos cambian rápidamente debido a factores externos (noticias, liquidez, shocks de mercado), lo que complica la definición de una línea base estable. Tercero, los eventos de \emph{pump \& dump} ocurren en escalas temporales cortas (horas o pocos días), lo que limita la cantidad de datos disponibles para estimar de forma robusta la estructura de correlación.
+
+Adicionalmente, fenómenos globales del mercado pueden inducir movimientos
+colectivos que no corresponden a manipulación, generando falsos positivos si no se controlan adecuadamente. Por tanto, cualquier método de detección debe ser capaz de distinguir entre coordinación artificial localizada y movimientos globales del mercado.
+
+En este contexto, surge la siguiente pregunta de investigación:
+
+\begin{quote}
+  \emph{¿Puede el percentil~90 de la distribución del IPR de la Laplaciana
+  normalizada de una red de correlaciones filtrada detectar la fase de
+  acumulación previa a esquemas de \emph{pump \& dump} en criptoactivos?}
+\end{quote}
+
+Esta pregunta apunta a evaluar si una medida agregada de localización espectral es capaz de capturar la aparición de estructuras colectivas anómalas sin necesidad de identificar explícitamente los activos involucrados.

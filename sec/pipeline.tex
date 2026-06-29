@@ -1,0 +1,68 @@
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[
+  node distance = 0.6cm and 1.4cm,
+  block/.style = {
+    rectangle, draw=black!65, rounded corners=4pt,
+    fill=gray!8, text width=2.6cm, minimum height=1.2cm,
+    align=center, font=\small
+  },
+  output/.style = {
+    rectangle, draw=black!65, rounded corners=4pt,
+    fill=black!13, text width=2.6cm, minimum height=1.2cm,
+    align=center, font=\small\bfseries
+  },
+  arr/.style = {-{Stealth[length=7pt,width=5pt]}, thick, black!55}
+]
+
+%% Fila 1: Datos -> C_t -> RMT
+\node[block] (A) {
+  \textbf{Entrada}\\[2pt]
+  API Binance\\SYM/BTC, 1-min
+};
+\node[block, right=of A] (B) {
+  \textbf{Correlacion $C_t$}\\[2pt]
+  Pearson\\$T_{\mathrm{det}}=48$\,h
+};
+\node[block, right=of B] (C) {
+  \textbf{Filtrado RMT}\\[2pt]
+  Marchenko-Pastur\\$T_{\mathrm{cal}}=720$\,h
+};
+
+%% Fila 2: MST -> Espectral -> Deteccion
+\node[block, below=of C] (D) {
+  \textbf{MST $+ k$ aristas}\\[2pt]
+  Mantegna\\Modularidad $\to G_t$
+};
+\node[block, left=of D] (E) {
+  \textbf{Analisis espectral}\\[2pt]
+  Laplaciana $\mathcal{L}_t$\\$\mathrm{IPR}_{p90}(t)$
+};
+\node[output, left=of E] (F) {
+  Deteccion\\[2pt]
+  Conf.\ Model\\$\hat{F}^{-1}(0.997)$
+};
+
+%% Flechas
+\draw[arr] (A) -- (B);
+\draw[arr] (B) -- (C);
+\draw[arr] (C) -- (D);
+\draw[arr] (D) -- (E);
+\draw[arr] (E) -- (F);
+
+%% Etiquetas de etapa
+\foreach \n/\lbl in {A/Etapa 1, B/Etapa 2, C/Etapa 3}{
+  \node[font=\scriptsize\itshape, above=3pt of \n] {\lbl};
+}
+\foreach \n/\lbl in {D/Etapa 4, E/Etapa 5, F/Salida}{
+  \node[font=\scriptsize\itshape, below=3pt of \n] {\lbl};
+}
+
+\end{tikzpicture}
+\caption{Pipeline de deteccion de \emph{pump \& dump}. Las Etapas 1--3
+  construyen y filtran la matriz de correlacion; la Etapa 4 esparsifica el
+  grafo con MST; la Etapa 5 aplica teoria espectral de grafos para obtener
+  $\mathrm{IPR}_{p90}$; la salida compara contra el
+  \emph{Configuration Model}.}
+\label{fig:pipeline}
+\end{figure*}
